@@ -1,0 +1,278 @@
+SELECT *
+FROM PortfolioProject..Nashville
+
+----------------------------------
+--Standardizing the Date
+----------------------------------
+SELECT SaleDate, CONVERT(Date,SaleDate)
+FROM PortfolioProject..Nashville
+
+UPDATE PortfolioProject..Nashville
+SET SaleDate = CONVERT(Date,SaleDate)
+
+
+
+----------------------------------
+--Property Address Nulls
+----------------------------------
+
+SELECT *
+FROM PortfolioProject..Nashville
+WHERE PropertyAddress IS NULL --looking at null property address
+ORDER BY ParcelID --to check if we can do research based on this to populate property address
+
+SELECT *
+FROM PortfolioProject..Nashville
+--WHERE PropertyAddress 
+ORDER BY ParcelID --check for same parcel ID, there are some duplicates starting at row 2690
+
+--based on info query above, we are going to write a query to populate the property address with the property address
+--of another row if they have the same parcel ID, this requires a SELF JOIN
+
+SELECT a.ParcelID, a.PropertyAddress, b.ParcelID, b.PropertyAddress, ISNULL(a.PropertyAddress,b.PropertyAddress)
+FROM PortfolioProject..Nashville AS a
+JOIN PortfolioProject..Nashville AS b
+ ON a.ParcelID=b.ParcelID
+ AND a.[UniqueID] <> b.[UniqueID] 
+ --we don't need all information to copy over because then sale date and sale price will be 
+ --affected, can accomplish this by placing uniqueID as a qualifier too
+WHERE a.PropertyAddress IS NULL
+--can see that the Property address is present, but not populated, use ISNULL statement in SELECT clause
+
+
+--will write update table statement using the above
+UPDATE a
+SET PropertyAddress = ISNULL(a.PropertyAddress,b.PropertyAddress)
+FROM PortfolioProject..Nashville AS a
+JOIN PortfolioProject..Nashville AS b
+ ON a.ParcelID=b.ParcelID
+ AND a.[UniqueID] <> b.[UniqueID] 
+ --says update was made, run previous query to verify-should have no info since all NULLS are populated now
+
+
+ 
+-------------------------------------------------------
+--Property Address Break up into Address, City
+-------------------------------------------------------
+
+SELECT PropertyAddress
+FROM PortfolioProject..Nashville
+--address currently has address, city= comma is delimiter-USING SUBSTRING
+
+SELECT
+SUBSTRING (PropertyAddress,1,CHARINDEX(',',PropertyAddress)) AS Address
+FROM PortfolioProject..Nashville
+--SUBSTRING(column, position to start, CHARINDEX.....))
+--CHARINDEX= where we tell it how to break it up. SYNTAX: CHARINDEX('delimiter', column where you are lookking)
+--this query leaves you with ',' in the address. Fix by adding -1 to the CHARDINDEX function 
+--going to the comma and one minut
+
+SELECT
+SUBSTRING (PropertyAddress,1,CHARINDEX(',',PropertyAddress)-1) AS Address
+FROM PortfolioProject..Nashville
+
+--taking the city now
+SELECT
+SUBSTRING (PropertyAddress,1,CHARINDEX(',',PropertyAddress)-1) AS Address,
+SUBSTRING (PropertyAddress, CHARINDEX(',',PropertyAddress)+1,LEN(PropertyAddress)) AS City
+--second substring starts +1 position after the comma= take position one out, change to +1
+--use LEN to have it go to the whole LENGTH of characters after the comma
+FROM PortfolioProject..Nashville
+
+--above queries were just to check, now need to actually update table to
+--add two  columns for the ones we just made
+
+ALTER TABLE PortfolioProject..Nashville
+ADD PropertySplitAddress Nvarchar(255);
+--must specify column name and data type in ADD function
+
+UPDATE PortfolioProject..Nashville
+SET PropertySplitAddress = SUBSTRING (PropertyAddress,1,CHARINDEX(',',PropertyAddress)-1)
+
+--second new column
+ALTER TABLE PortfolioProject..Nashville
+ADD SplitCity Nvarchar(255);
+
+UPDATE PortfolioProject..Nashville
+SET SplitCity = SUBSTRING (PropertyAddress,CHARINDEX(',',PropertyAddress)+1,LEN(PropertyAddress))
+
+--check to make sure columns are added and populated
+SELECT *
+FROM PortfolioProject..Nashville
+
+
+-------------------------------------------------------
+--Owner Address Break up into Address, City
+-------------------------------------------------------
+--lets see what it looks like:
+
+SELECT OwnerAddress
+FROM PortfolioProject..Nashville
+
+--going to use a technique called PARSE NAME-just another way to do it
+
+SELECT
+PARSENAME(REPLACE(OwnerAddress, ',','.'), 1)
+,PARSENAME(REPLACE(OwnerAddress, ',','.'), 2)
+,PARSENAME(REPLACE(OwnerAddress, ',','.'), 3)
+--PARSENAME(column, position) only works w/ periods= must use replace if your delimiter is a comma
+--replace specifies what you want to change into. SYNTAX: REPLACE(column, 'delimeter you have', '.')
+--PARSENAME has position one at the end (see this query)= to get address first, must do 3-2-1, see below query
+FROM PortfolioProject..Nashville
+
+SELECT
+PARSENAME(REPLACE(OwnerAddress, ',','.'), 3)
+,PARSENAME(REPLACE(OwnerAddress, ',','.'), 2)
+,PARSENAME(REPLACE(OwnerAddress, ',','.'), 1)
+--now address is first, then city, then state
+FROM PortfolioProject..Nashville
+
+
+--now to add the columns to the table using ALTER TABLE again :), beginning with address line
+ALTER TABLE PortfolioProject..Nashville
+ADD OwnerAddressSplit Nvarchar(255);
+
+UPDATE PortfolioProject..Nashville
+SET OwnerAddressSplit = PARSENAME(REPLACE(OwnerAddress, ',','.'), 3)
+
+--city
+ALTER TABLE PortfolioProject..Nashville
+ADD OwnerCitySplit Nvarchar(255);
+
+UPDATE PortfolioProject..Nashville
+SET OwnerCitySplit = PARSENAME(REPLACE(OwnerAddress, ',','.'), 2)
+
+--state
+ALTER TABLE PortfolioProject..Nashville
+ADD OwnerStateSplit Nvarchar(255);
+
+UPDATE PortfolioProject..Nashville
+SET OwnerStateSplit = PARSENAME(REPLACE(OwnerAddress, ',','.'), 1)
+
+--view table to make sure
+SELECT *
+FROM PortfolioProject..Nashville
+
+ALTER TABLE PortfolioProject..Nashville
+DROP COLUMN PropertySplitCity --got rid of the one I made accidently
+
+
+-------------------------------------------------------
+--"SoldAsVacant" column is in 0/1 format, want Yes/No
+-------------------------------------------------------
+
+
+--view the column first
+SELECT DISTINCT (SoldAsVacant), COUNT(SoldAsVacant)
+FROM PortfolioProject..Nashville
+GROUP BY SoldAsVacant
+--gives the # of properties for each o/1 criteria
+
+--changing to y/n
+--0=NO, 1=YES
+--WHEN syntax: WHEN column_name = or <> 'criteria' THEN 'changeto'
+--must END CASE Statements
+SELECT SoldAsVacant
+,CAST(CASE WHEN SoldAsVacant = '0' THEN 'NO'
+     WHEN SoldAsVacant = '1' THEN 'YES'
+	 ELSE SoldAsVacant
+	 END AS varchar);
+FROM PortfolioProject..Nashville
+--come back to this later using CHAT GPT- minute 33ish on the video
+
+
+
+---------------------------------
+--Removing Duplicates
+---------------------------------
+
+SELECT *,
+	ROW_NUMBER() OVER (
+	PARTITION BY ParcelID,
+		PropertyAddress,
+		SalePrice,
+		SaleDate,
+		LegalReference 
+		ORDER BY UniqueID) AS row_num
+--must partition by things that should be unique to each sale
+--this query generates 1 and 2 row num for a property where everything is the same (saleprice, legalref, etc= duplicate)
+FROM PortfolioProject..Nashville
+ORDER BY ParcelID
+--ROW_NUMBER function is a SQL ranking function that assigns a sequential rank number to each new record in a partition
+
+--need to create a CTE temp table in order to find  row # >1
+
+WITH RowNumCTE AS (
+SELECT *,
+	ROW_NUMBER() OVER (
+	PARTITION BY ParcelID,
+		PropertyAddress,
+		SalePrice,
+		SaleDate,
+		LegalReference 
+		ORDER BY UniqueID) AS row_num
+--must partition by things that should be unique to each sale
+--this query generates 1 and 2 row num for a property where everything is the same (saleprice, legalref, etc= duplicate)
+FROM PortfolioProject..Nashville
+--ORDER BY ParcelID
+)
+SELECT *
+FROM RowNumCTE
+WHERE row_num >1
+ORDER BY PropertyAddress
+--shows you the duplicate rows
+
+
+
+
+--to delete the duplicates
+WITH RowNumCTE AS (
+SELECT *,
+	ROW_NUMBER() OVER (
+	PARTITION BY ParcelID,
+		PropertyAddress,
+		SalePrice,
+		SaleDate,
+		LegalReference 
+		ORDER BY UniqueID) AS row_num
+--must partition by things that should be unique to each sale
+--this query generates 1 and 2 row num for a property where everything is the same (saleprice, legalref, etc= duplicate)
+FROM PortfolioProject..Nashville
+--ORDER BY ParcelID
+)
+DELETE --replace SELECT with DELETE
+FROM RowNumCTE
+WHERE row_num >1
+--ORDER BY PropertyAddress
+--returns 104 rows affected
+
+--rerun this function to check for more duplicates
+WITH RowNumCTE AS (
+SELECT *,
+	ROW_NUMBER() OVER (
+	PARTITION BY ParcelID,
+		PropertyAddress,
+		SalePrice,
+		SaleDate,
+		LegalReference 
+		ORDER BY UniqueID) AS row_num
+--must partition by things that should be unique to each sale
+--this query generates 1 and 2 row num for a property where everything is the same (saleprice, legalref, etc= duplicate)
+FROM PortfolioProject..Nashville
+--ORDER BY ParcelID
+)
+SELECT *
+FROM RowNumCTE
+WHERE row_num >1
+--returns 0 rows 
+
+---------------------------------
+--Removing Unused/Uneeded Columns
+---------------------------------
+SELECT *
+FROM PortfolioProject..Nashville
+
+ALTER TABLE PortfolioProject..Nashville
+DROP COLUMN OwnerAddress, TaxDistrict, PropertyAddress
+
+--the point of data cleaning is to make it more usable for analysis purporses
